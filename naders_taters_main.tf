@@ -6,19 +6,48 @@ data "aws_key_pair" "existing_k3s_key_pair" {
   key_name = "k3s-cluster-key"
 }
 
+resource "aws_iam_role" "s3_full_access_role" {
+  name = "s3_full_access_role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
+        Principal = {
+          Service = "ec2.amazonaws.com",
+        },
+      },
+    ],
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "s3_full_access_attachment" {
+  role       = aws_iam_role.s3_full_access_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+resource "aws_iam_instance_profile" "s3_full_access_instance_profile" {
+  name = "s3_full_access_instance_profile"
+  role = aws_iam_role.s3_full_access_role.name
+}
+
 resource "aws_instance" "orders_service_ec2" {
   ami           = "ami-0ce2cb35386fc22e9"
   instance_type = "t2.small"
   key_name      = data.aws_key_pair.existing_k3s_key_pair.key_name
   vpc_security_group_ids = [aws_security_group.naders_taters_sg.id]
+  iam_instance_profile = aws_iam_instance_profile.s3_full_access_instance_profile.name
 
   user_data = <<-EOF
-              sudo apt update -y && sudo apt upgrade -y
+              #!/bin/bash
+              sudo snap install aws-cli --classic
               curl -sfL https://get.k3s.io | sh - 
-              sudo apt install awscli -y
               aws s3 cp s3://naders-taters/orders-service/deployment.yml .
               export PUBLIC_IP=$(curl ipinfo.io/ip)
               echo "  - $PUBLIC_IP" >> deployment.yml
+              sudo kubectl apply -f deployment.yml
               EOF
 
   tags = {
@@ -31,14 +60,16 @@ resource "aws_instance" "products_service_ec2" {
   instance_type = "t2.small"
   key_name      = data.aws_key_pair.existing_k3s_key_pair.key_name
   vpc_security_group_ids = [aws_security_group.naders_taters_sg.id]
+  iam_instance_profile = aws_iam_instance_profile.s3_full_access_instance_profile.name
 
   user_data = <<-EOF
-              sudo apt update -y && sudo apt upgrade -y
+              #!/bin/bash
+              sudo snap install aws-cli --classic
               curl -sfL https://get.k3s.io | sh - 
-              sudo apt install awscli -y
-              aws s3 cp s3://naders-taters/orders-service/deployment.yml .
+              aws s3 cp s3://naders-taters/products-service/deployment.yml .
               export PUBLIC_IP=$(curl ipinfo.io/ip)
               echo "  - $PUBLIC_IP" >> deployment.yml
+              sudo kubectl apply -f deployment.yml
               EOF
 
   tags = {
